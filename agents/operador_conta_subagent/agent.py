@@ -4,9 +4,8 @@
 # if __name__ == "__main__":
 #     main()
 
-from aiohttp import Payload
 from google.adk import Agent
-from google.adk.models import ToolContext
+from google.adk.tools import ToolContext
 # from google.adk.models.lite_llm import LiteLlm
 
 FATURAS = [
