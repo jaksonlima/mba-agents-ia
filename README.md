@@ -21,3 +21,15 @@ adk run agents/meu_agente2
 ```
 adk web /agents
 ```
+
+## Adicionar dependencia
+
+```
+uv add "sqlalchemy==2.0.51"
+```
+
+## Resert DB
+
+```
+ uv run python -m db.reset
+```

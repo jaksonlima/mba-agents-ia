@@ -1,5 +1,4 @@
 from google.adk.agents import Agent
-from google.adk.apps import App
 from pydantic import BaseModel, Field
 from db.models import TicketCategory
 
@@ -54,6 +53,8 @@ O retorno do agente deve ser um JSON com os campos:
 {"category": "<categoria>", "confidence": <confiança>, "justification": "<justificativa>", "needs_refund": <true_ou_false>}
 """
 
+CLASSIFIER_OUTPUT_KEY = "temp:ticket_classifier_output"
+
 class TicketClassifierOutput(BaseModel):
     category: TicketCategory = Field(description="Categoria do ticket de suporte da Acme Cloud.")
     confidence: float = Field(ge=0.0, le=1.0, description="Nivel de confiança da classificação do ticket (0.0 a 1.0).")
@@ -67,5 +68,5 @@ ticket_classifier_subagent = Agent(
     mode="single_turn",
     instruction=_INSTRUCTION,
     output_schema=TicketClassifierOutput,
-    output_key="temp:ticket_classifier_output"
+    output_key=CLASSIFIER_OUTPUT_KEY
 )
