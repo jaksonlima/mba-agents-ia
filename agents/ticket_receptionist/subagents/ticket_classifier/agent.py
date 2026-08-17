@@ -55,6 +55,10 @@ O retorno do agente deve ser um JSON com os campos:
 
 CLASSIFIER_OUTPUT_KEY = "temp:ticket_classifier_output"
 
+#normal -> nome convencional
+#temp -> sobrevive no turno
+#user -> sobrevive na sessão do usuário = memoria de longo prazo
+
 class TicketClassifierOutput(BaseModel):
     category: TicketCategory = Field(description="Categoria do ticket de suporte da Acme Cloud.")
     confidence: float = Field(ge=0.0, le=1.0, description="Nivel de confiança da classificação do ticket (0.0 a 1.0).")
