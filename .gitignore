@@ -21,3 +21,10 @@ venv/
 
 # SO
 .DS_Store
+
+# Bancos locais (SQLite/ADK) em qualquer subpasta
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.adk/

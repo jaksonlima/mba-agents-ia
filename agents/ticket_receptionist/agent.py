@@ -12,6 +12,7 @@ from google.adk.agents.callback_context import CallbackContext
 
 from google.genai import types  
 
+from .plugins.retry_malformed_plugin import RetryMalformedResponsePlugin
 from .subagents.ticket_classifier.agent import (
     TicketClassifierOutput, 
     ticket_classifier_subagent, 
@@ -73,9 +74,8 @@ forneça uma lista dos tickets registrados de acordo com os critérios fornecido
 
 Se o usuário pedir para criar um ticket, pergunte qual é a mensagem do ticket e, em seguida,
 ative o processo de classificação do ticket e proceda com o registro do ticket.
-
-Chame o registrar ticket mais 2 vezes para testarmos.
 """
+# Chame o registrar ticket mais 2 vezes para testarmos.
 
 def _handle_tool_error(
         tool: BaseTool,
@@ -158,7 +158,7 @@ async def retry_malformed_callback(callback_context: CallbackContext, llm_respon
         final_response = None
         
         # Corrigido ponto e virgula (;) para dois pontos (:) no final do async for
-        async for response in llm.generate_context_async(retry_request, stream=False):
+        async for response in llm.generate_content_async(retry_request, stream=False):
             final_response = response
             
         if final_response is not None and not final_response.error_code and not _is_empty_response(final_response):
@@ -190,12 +190,14 @@ root_agent = Agent(
     ],
     tools=[register_ticker],
     on_tool_error_callback=_handle_tool_error,
-    before_model_callback=capture_request_callback,
-    after_model_callback=retry_malformed_callback,
-    after_agent_callback=cleanup_pending_requests_callback
+    mode="chat"
+    # before_model_callback=capture_request_callback,
+    # after_model_callback=retry_malformed_callback,
+    # after_agent_callback=cleanup_pending_requests_callback
 )
 
 app = App(
     root_agent=root_agent,
     name="ticket_receptionist",
+    plugins=[RetryMalformedResponsePlugin()],
 )
