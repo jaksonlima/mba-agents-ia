@@ -19,7 +19,7 @@ adk run agents/meu_agente2
 ```
 
 ```
-adk web /agents
+adk web ./agents
 ```
 
 ## Adicionar dependencia

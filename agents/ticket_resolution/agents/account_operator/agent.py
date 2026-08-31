@@ -39,7 +39,7 @@ account_operator_agent = Agent(
     description=(
         "Especialista em ações de conta (adicionar membro à equipe, etc)."
     ),
-    mode="single_turn",
+    # mode="single_turn",
     model="gemini-3.5-flash",
     instruction=_INSTRUCTION,
     tools=[create_account_toolset()], #mcp

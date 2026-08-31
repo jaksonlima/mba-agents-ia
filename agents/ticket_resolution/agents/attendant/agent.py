@@ -1,4 +1,5 @@
 from google.adk import Agent
+from google.adk.tools import AgentTool
 from pydantic import BaseModel, Field
 from agents.ticket_resolution.agents.account_operator.agent import account_operator_agent
 from agents.ticket_resolution.tools.platform_status_tool import platform_status
@@ -43,8 +44,8 @@ attendant_agent = Agent(
     ),
     model="gemini-3.5-flash",
     instruction=_INSTRUCTION,
-    tools=[platform_status], #http
-    sub_agents=[account_operator_agent],
+    tools=[platform_status, AgentTool(account_operator_agent)], #http
+    # sub_agents=[account_operator_agent],
     output_key="attendant_output",
     output_schema=AttendantOutput,
 )
