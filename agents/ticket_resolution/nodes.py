@@ -1,11 +1,58 @@
 from google.adk.workflow import node
 from google.adk import Context, Event
-from google.adk.events import EventActions
-
+from pydantic import BaseModel, Field
 from agents.ticket_resolution.agents.attendant.agent import AttendantOutput
+from google.adk.events import EventActions
+from agents.ticket_resolution.agents.refund_investigator.agent import RefundInvestigatorOutput
 from db import repo
 from db.models import TicketCategory, TicketStatus
+from outside import mock_billing_server as _billing
+from env import REFUND_APPROVAL_THRESHOLD, REFUND_MAX_LIMIT
 
+def _needs_refund_resolution(needs_refund: bool, confidence: float) -> bool:
+    return needs_refund and confidence >= 0.6
+
+async def _compute_refundable(customer_id: str, month: str, item_ids: list[str]) -> dict:
+    """SOMA o valor real das linhas `item_ids` da fatura `{month}` - SEM efeito colateral.
+
+    Usado pelo `refund_gate` para decidir auto/aprovação/bloqueio ANTES de qualquer
+    pausa. Não toca no billing nem no banco; só lê a fatura e soma. Retorna:
+    - `{"status": "not_found", ...}`  - não há fatura no mês.
+    - `{"status": "invalid", ...}`    - nenhum `item_id` casa com a fatura.
+    - `{"status": "block_refund", "amount", "skus", ...}` - soma acima do teto absoluto.
+    - `{"status": "ok", "amount", "skus"}` - pode estornar (agente decide auto vs HITL).
+    """
+    inv = await _billing.get_invoice(customer_id, month)
+    if "error" in inv:
+        return {"status": "not_found", "reason": inv["error"]}
+
+    by_id = {it["id"]: it for it in inv["items"]}
+    selected = [by_id[i] for i in item_ids if i in by_id]
+    if not selected:
+        return {
+            "status": "invalid",
+            "reason": f"Nenhuma linha válida em {month} para os ids {item_ids}.",
+        }
+
+    amount = sum(it["amount"] for it in selected)
+    skus = ", ".join(it["sku"] for it in selected)
+    if amount > REFUND_MAX_LIMIT:
+        return {
+            "status": "block_refund",
+            "amount": amount,
+            "skus": skus,
+            "reason": f"Refund de S${amount} acima do teto absoluto S${REFUND_MAX_LIMIT:.0f}.",
+        }
+    return {"status": "ok", "amount": amount, "skus": skus}
+
+class AutoRefundRequest(BaseModel):
+    refund_month: str = Field(
+        description="Mês da fatura a estornar (YYYY-MM)."
+    )
+    refund_amount: float = Field(description="Valor total a estornar.")
+    refund_skus: str = Field(
+        default="", description="SKUs das linhas a estornar."
+    )
 
 @node
 async def triage_ticket_node(ctx: Context):
@@ -24,6 +71,9 @@ async def triage_ticket_node(ctx: Context):
     ctx.state["ticket_message"] = ticket.message
     ctx.state["classification_justification"] = classification.justification 
     ctx.state["customer_id"] = ticket.customer_id 
+
+    if _needs_refund_resolution(classification.needs_refund, classification.confidence):
+        return Event(actions=EventActions(route="refund_investigator"))
 
     return Event(actions=EventActions(route="attendant"))
 
@@ -59,3 +109,60 @@ async def finish_ticket_node(ticket_id: str, node_input: AttendantOutput):
 
     await repo.update_ticket(ticket)
     return Event(message=message)
+
+@node
+async def triage_refund_node(
+    ctx: Context,
+    node_input: RefundInvestigatorOutput,
+):
+    if node_input.decision != "refund":
+        pass
+        # prosseguir com o escalate
+
+    month = node_input.month or ""
+    item_ids = node_input.item_ids or []
+    customer_id = ctx.state.get("customer_id")
+    calc = await _compute_refundable(customer_id, month, item_ids)
+
+    if calc["status"] in ("not_found", "invalid", "block_refund"):
+        pass
+        # prosseguir com o escalate
+
+    auto_refund_request = AutoRefundRequest(
+        refund_month=month,
+        refund_amount=calc["amount"],
+        refund_skus=calc["skus"],
+    )
+
+    if calc["amount"] > REFUND_APPROVAL_THRESHOLD:
+        pass
+
+    return Event(actions=EventActions(route="auto_refund"), output=auto_refund_request)
+
+
+@node
+async def auto_refund_node(ctx: Context, node_input: AutoRefundRequest):
+    ticket_id = ctx.state.get("ticket_id")
+    ticket = await repo.get_ticket(ticket_id)
+
+    if not ticket:
+        # type: ignore
+        return Event(message=f"Ticket {ticket_id} não encontrado.")
+
+    await _billing.issue_refund(
+        customer_id=ticket.customer_id,
+        amount=node_input.refund_amount,
+        reason=f"Refund aprovado pelo agente de suporte (ticket {ticket_id})",
+    )
+
+    ticket.response = (
+        f"Olá! Seu pedido de reembolso foi aprovado e processado. "
+        f"O valor de S${node_input.refund_amount:.2f} referente à fatura "
+        f"de {node_input.refund_month} (linhas: {node_input.refund_skus}) "
+        f"será creditado em sua conta em até 5 dias úteis."
+    )
+
+    ticket.status = TicketStatus.RESOLVED
+    await repo.update_ticket(ticket)
+
+    return Event(message=ticket.response)  # type: ignore
